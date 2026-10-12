@@ -175,7 +175,18 @@ const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'dashboard', 'views'));
 app.use(express.urlencoded({ extended: true }));
-app.use(session({ secret: SESSION_SECRET, resave: false, saveUninitialized: false, cookie: { maxAge: 86400000 } }));
+app.set('trust proxy', 1);
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    secure: true,
+    maxAge: 86400000,
+    sameSite: 'lax'
+  }
+}));
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -192,8 +203,9 @@ if (CLIENT_ID && CLIENT_SECRET) {
 
 function ensureOwner(req, res, next) {
   if (!req.isAuthenticated()) return res.redirect('/login');
-  if (OWNER_ID && req.user.id !== OWNER_ID) {
-    return res.status(403).send('<h1 style="text-align:center;margin-top:80px;color:#e74c3c">Access Denied</h1>');
+  // If OWNER_ID is set, only that user can access. If empty, any logged-in Discord user can.
+  if (OWNER_ID && String(req.user.id) !== String(OWNER_ID)) {
+    return res.status(403).send('<h1 style="text-align:center;margin-top:80px;color:#e74c3c">Access Denied - Owner only</h1><p style="text-align:center">Your ID: '+req.user.id+'</p>');
   }
   next();
 }
