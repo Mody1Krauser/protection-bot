@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Tahoma,Arial,sans-serif;background:#0b0b10;color:#e8e8f0;min-height:100vh}
+.header{background:#14141f;padding:18px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #252538}
+.header h1{font-size:1.2rem}
+.header a{color:#ff6b6b;text-decoration:none;margin-right:12px}
+.container{max-width:800px;margin:28px auto;padding:0 16px}
+.card{background:#14141f;border-radius:12px;padding:22px;margin-bottom:20px;border:1px solid #252538}
+.card h2{font-size:1.05rem;margin-bottom:14px;color:#7b8cff}
+.status{display:inline-block;background:#1e3a2f;color:#4ade80;padding:4px 12px;border-radius:20px;font-size:.85rem;margin-bottom:18px}
+form{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+input[type=text]{flex:1;min-width:160px;padding:11px 14px;border-radius:8px;border:1px solid #333;background:#0f0f18;color:#fff}
+button{padding:11px 18px;border:none;border-radius:8px;background:#5865F2;color:#fff;font-weight:600;cursor:pointer}
+button:hover{background:#4752c4}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.tag{background:#1e1e2e;border:1px solid #333;padding:6px 12px;border-radius:20px;font-size:.85rem;display:flex;align-items:center;gap:8px}
+.tag form{margin:0}
+.tag button{background:transparent;color:#ff6b6b;padding:0;font-size:1rem}
+.empty{color:#666;font-size:.9rem}
+.info{color:#888;font-size:.85rem;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Bot Dashboard</h1>
+  <div><span><%= user.username %></span> <a href="/logout">Logout</a></div>
+</div>
+<div class="container">
+  <div class="status">Bot: <%= botTag %></div>
+
+  <div class="card">
+    <h2>Banned Words</h2>
+    <form action="/dashboard/addword" method="POST">
+      <input type="text" name="word" placeholder="Add word..." required>
+      <button type="submit">Add</button>
+    </form>
+    <div class="tags">
+      <% if (!bannedWords.length) { %><span class="empty">Empty</span><% } %>
+      <% bannedWords.forEach(function(word) { %>
+        <div class="tag"><%= word %>
+          <form action="/dashboard/removeword" method="POST">
+            <input type="hidden" name="word" value="<%= word %>">
+            <button type="submit">x</button>
+          </form>
+        </div>
+      <% }); %>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Log Channel ID</h2>
+    <form action="/dashboard/setlog" method="POST">
+      <input type="text" name="channelId" placeholder="Channel ID" value="<%= logChannelId %>">
+      <button type="submit">Save</button>
+    </form>
+    <p class="info">Current: <%= logChannelId || 'Not set' %></p>
+  </div>
+
+  <div class="card">
+    <h2>Whitelist (User IDs)</h2>
+    <form action="/dashboard/whitelist" method="POST">
+      <input type="text" name="userId" placeholder="User ID" required>
+      <button type="submit">Add</button>
+    </form>
+    <div class="tags" style="margin-top:10px">
+      <% if (!whitelist.length) { %><span class="empty">Empty</span><% } %>
+      <% whitelist.forEach(function(id) { %>
+        <div class="tag"><%= id %>
+          <form action="/dashboard/unwhitelist" method="POST">
+            <input type="hidden" name="userId" value="<%= id %>">
+            <button type="submit">x</button>
+          </form>
+        </div>
+      <% }); %>
+    </div>
+  </div>
+</div>
+</body>
+</html>

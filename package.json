@@ -1,15 +1,19 @@
 {
   "name": "protection-bot",
-  "version": "1.0.0",
-  "description": "Discord Protection Bot - Anti-Swear, Anti-Links, Anti-Nuke",
+  "version": "2.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18"
   },
   "dependencies": {
-    "discord.js": "^14.16.3"
+    "discord.js": "^14.16.3",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "passport": "^0.7.0",
+    "passport-discord": "^0.1.4",
+    "ejs": "^3.1.10"
   }
 }
