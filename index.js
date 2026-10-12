@@ -1,21 +1,16 @@
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder, REST, Routes, MessageFlags } = require('discord.js');
 const express = require('express');
 const session = require('express-session');
-const passport = require('passport');
-const DiscordStrategy = require('passport-discord').Strategy;
 const fs = require('fs');
 const path = require('path');
 
 const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const OWNER_ID = process.env.OWNER_ID;
-const CALLBACK_URL = process.env.CALLBACK_URL || 'http://localhost:8080/auth/callback';
 const PORT = process.env.PORT || 8080;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret';
+const DASH_PASSWORD = process.env.DASH_PASSWORD || 'admin123';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'bot-secret-change-me';
 
 if (!TOKEN) {
-  console.error('Missing TOKEN env variable');
+  console.error('Missing TOKEN');
   process.exit(1);
 }
 
@@ -69,7 +64,7 @@ client.once('clientReady', async () => {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log('Commands registered');
   } catch (e) {
-    console.error('Command register error:', e.message);
+    console.error('Command error:', e.message);
   }
 });
 
@@ -133,7 +128,6 @@ client.on('interactionCreate', async (i) => {
   if (!i.isChatInputCommand()) return;
   try {
     await i.deferReply({ flags: MessageFlags.Ephemeral });
-
     if (i.commandName === 'addword') {
       const word = i.options.getString('word').toLowerCase();
       if (!data.bannedWords.includes(word)) { data.bannedWords.push(word); saveData(); }
@@ -145,8 +139,7 @@ client.on('interactionCreate', async (i) => {
       return i.editReply('Removed: **' + word + '**');
     }
     if (i.commandName === 'listwords') {
-      const list = data.bannedWords.slice(0, 50).join(', ') || 'Empty';
-      return i.editReply('```' + list + '```');
+      return i.editReply('```' + (data.bannedWords.slice(0, 50).join(', ') || 'Empty') + '```');
     }
     if (i.commandName === 'setlog') {
       data.logChannelId = i.options.getChannel('channel').id; saveData();
@@ -160,75 +153,70 @@ client.on('interactionCreate', async (i) => {
     if (i.commandName === 'unwhitelist') {
       const u = i.options.getUser('user');
       data.whitelist = data.whitelist.filter(id => id !== u.id); saveData();
-      return i.editReply('Removed from whitelist: ' + u.tag);
+      return i.editReply('Removed: ' + u.tag);
     }
   } catch (e) {
     console.error('Interaction error:', e.message);
-    try { await i.editReply('Error occurred').catch(() => {}); } catch {}
   }
 });
 
 client.login(TOKEN).catch(e => console.error('Login failed:', e.message));
 
-// ===== DASHBOARD =====
+// ===== DASHBOARD (password only, no Discord OAuth) =====
 const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'dashboard', 'views'));
-app.use(express.urlencoded({ extended: true }));
 app.set('trust proxy', 1);
+app.use(express.urlencoded({ extended: true }));
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   proxy: true,
-  cookie: {
-    secure: true,
-    maxAge: 86400000,
-    sameSite: 'lax'
-  }
+  cookie: { secure: true, maxAge: 86400000, sameSite: 'lax' }
 }));
-app.use(passport.initialize());
-app.use(passport.session());
 
-if (CLIENT_ID && CLIENT_SECRET) {
-  passport.use(new DiscordStrategy({
-    clientID: CLIENT_ID,
-    clientSecret: CLIENT_SECRET,
-    callbackURL: CALLBACK_URL,
-    scope: ['identify']
-  }, (accessToken, refreshToken, profile, done) => done(null, profile)));
-  passport.serializeUser((u, done) => done(null, u));
-  passport.deserializeUser((u, done) => done(null, u));
+function requireAuth(req, res, next) {
+  if (req.session && req.session.loggedIn) return next();
+  return res.redirect('/login');
 }
 
-function ensureOwner(req, res, next) {
-  if (!req.isAuthenticated()) return res.redirect('/login');
-  // If OWNER_ID is set, only that user can access. If empty, any logged-in Discord user can.
-  if (OWNER_ID && String(req.user.id) !== String(OWNER_ID)) {
-    return res.status(403).send('<h1 style="text-align:center;margin-top:80px;color:#e74c3c">Access Denied - Owner only</h1><p style="text-align:center">Your ID: '+req.user.id+'</p>');
-  }
-  next();
-}
-
-app.get('/', (req, res) => res.redirect(req.isAuthenticated() ? '/dashboard' : '/login'));
+app.get('/', (req, res) => res.redirect(req.session.loggedIn ? '/dashboard' : '/login'));
 
 app.get('/login', (req, res) => {
-  if (!CLIENT_ID) return res.send('<h2 style="text-align:center;margin-top:80px">Set CLIENT_ID, CLIENT_SECRET, OWNER_ID in Railway Variables</h2>');
+  const error = req.query.error ? '<p style="color:#ff6b6b">Wrong password</p>' : '';
   res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Login</title>
-  <style>body{font-family:Tahoma;background:#0f0f13;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
-  .box{background:#1a1a24;padding:40px;border-radius:16px;text-align:center}
-  a{background:#5865F2;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;margin-top:16px}
-  </style></head><body><div class="box"><h1>Bot Dashboard</h1>
-  <p>Private access only</p><a href="/auth/discord">Login with Discord</a></div></body></html>`);
+  <style>
+  body{font-family:Tahoma;background:#0f0f13;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
+  .box{background:#1a1a24;padding:40px;border-radius:16px;text-align:center;width:320px}
+  input{width:100%;padding:12px;margin:12px 0;border-radius:8px;border:1px solid #333;background:#0f0f18;color:#fff;box-sizing:border-box}
+  button{width:100%;padding:12px;border:none;border-radius:8px;background:#5865F2;color:#fff;font-weight:bold;cursor:pointer;margin-top:8px}
+  button:hover{background:#4752c4}
+  </style></head><body><div class="box">
+  <h1>Bot Dashboard</h1>
+  ${error}
+  <form method="POST" action="/login">
+    <input type="password" name="password" placeholder="Password" required autofocus>
+    <button type="submit">Login</button>
+  </form>
+  </div></body></html>`);
 });
 
-app.get('/auth/discord', passport.authenticate('discord'));
-app.get('/auth/callback', passport.authenticate('discord', { failureRedirect: '/login' }), (req, res) => res.redirect('/dashboard'));
-app.get('/logout', (req, res) => { req.logout(() => res.redirect('/login')); });
+app.post('/login', (req, res) => {
+  if ((req.body.password || '') === DASH_PASSWORD) {
+    req.session.loggedIn = true;
+    return res.redirect('/dashboard');
+  }
+  return res.redirect('/login?error=1');
+});
 
-app.get('/dashboard', ensureOwner, (req, res) => {
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/login'));
+});
+
+app.get('/dashboard', requireAuth, (req, res) => {
   res.render('dashboard', {
-    user: req.user,
+    user: { username: 'Admin' },
     bannedWords: data.bannedWords || [],
     whitelist: data.whitelist || [],
     logChannelId: data.logChannelId || '',
@@ -236,27 +224,27 @@ app.get('/dashboard', ensureOwner, (req, res) => {
   });
 });
 
-app.post('/dashboard/addword', ensureOwner, (req, res) => {
+app.post('/dashboard/addword', requireAuth, (req, res) => {
   const word = (req.body.word || '').trim().toLowerCase();
   if (word && !data.bannedWords.includes(word)) { data.bannedWords.push(word); saveData(); }
   res.redirect('/dashboard');
 });
-app.post('/dashboard/removeword', ensureOwner, (req, res) => {
+app.post('/dashboard/removeword', requireAuth, (req, res) => {
   data.bannedWords = data.bannedWords.filter(w => w !== (req.body.word || '').trim().toLowerCase());
   saveData();
   res.redirect('/dashboard');
 });
-app.post('/dashboard/setlog', ensureOwner, (req, res) => {
+app.post('/dashboard/setlog', requireAuth, (req, res) => {
   data.logChannelId = (req.body.channelId || '').trim();
   saveData();
   res.redirect('/dashboard');
 });
-app.post('/dashboard/whitelist', ensureOwner, (req, res) => {
+app.post('/dashboard/whitelist', requireAuth, (req, res) => {
   const id = (req.body.userId || '').trim();
   if (id && !data.whitelist.includes(id)) { data.whitelist.push(id); saveData(); }
   res.redirect('/dashboard');
 });
-app.post('/dashboard/unwhitelist', ensureOwner, (req, res) => {
+app.post('/dashboard/unwhitelist', requireAuth, (req, res) => {
   data.whitelist = data.whitelist.filter(x => x !== (req.body.userId || '').trim());
   saveData();
   res.redirect('/dashboard');
