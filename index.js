@@ -1,3 +1,4 @@
+
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder, REST, Routes, MessageFlags } = require('discord.js');
 const express = require('express');
 const session = require('express-session');
@@ -38,33 +39,24 @@ function saveData() {
 function normalizeText(text) {
   if (!text) return '';
   let t = text.toLowerCase();
-
-  // تحويل الأحرف المتشابهة (عربي + لاتيني)
   const map = {
-    // عربي مزيّف / مشابه
     'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ة': 'ه', 'ى': 'ي', 'ؤ': 'و', 'ئ': 'ي',
-    // لاتيني يشبه عربي أو يُستخدم للالتفاف
     '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '8': 'b', '9': 'g',
     '@': 'a', '$': 's', '!': 'i', '|': 'i',
-    // إنجليزي شائع في التمويه
     'к': 'k', 'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x',
   };
   for (const [from, to] of Object.entries(map)) {
     t = t.split(from).join(to);
   }
-
-  // إزالة كل الرموز والمسافات والنقاط والشرطات
   t = t
     .replace(/[\s\-_\.\,\;\:\!\?\*\+\=\~`'"\\\/\(\)\[\]\{\}\<\>\|]/g, '')
-    .replace(/[^\u0600-\u06FFa-z0-9]/g, ''); // يبقي عربي + إنجليزي + أرقام فقط
-
+    .replace(/[^\u0600-\u06FFa-z0-9]/g, '');
   return t;
 }
 
 function containsBannedWord(content) {
   const normalized = normalizeText(content);
   if (!normalized) return null;
-
   for (const word of data.bannedWords) {
     const nw = normalizeText(word);
     if (!nw) continue;
@@ -73,9 +65,9 @@ function containsBannedWord(content) {
   return null;
 }
 
-// تتبع السبام
 const spamMap = new Map();
 const joinMap = new Map();
+const actionTracker = new Map();
 
 // ===== BOT =====
 const client = new Client({
@@ -108,12 +100,15 @@ const commands = [
     .addUserOption(o => o.setName('user').setDescription('الشخص').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
   new SlashCommandBuilder().setName('settings').setDescription('عرض إعدادات الحماية')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('clear').setDescription('حذف رسائل من الروم')
+    .addIntegerOption(o => o.setName('amount').setDescription('عدد الرسائل (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
 ];
 
 client.once('clientReady', async () => {
   console.log('Bot online:', client.user.tag);
-  client.user.setActivity('Smart Protection 🛡️', { type: 3 });
+  client.user.setActivity('Smart Protection', { type: 3 });
   try {
     const rest = new REST({ version: '10' }).setToken(TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -139,28 +134,28 @@ client.on('messageCreate', async (message) => {
 
     const content = message.content;
 
-    // 1) كشف الشتائم الذكي
+    // 1) فلتر شتائم ذكي
     const found = containsBannedWord(content);
     if (found) {
       await message.delete().catch(() => {});
-      try { await message.member.timeout(5 * 60 * 1000, 'Banned word (smart filter)'); } catch {}
-      await logAction(message.guild, '🚫 كلمة ممنوعة (فلتر ذكي)', `**العضو:** ${message.author}\n**الكلمة:** ||${found}||\n**الرسالة:** ||${content.slice(0, 100)}||`);
+      try { await message.member.timeout(5 * 60 * 1000, 'Banned word'); } catch {}
+      await logAction(message.guild, 'كلمة ممنوعة', `العضو: ${message.author}\nالكلمة: ||${found}||\nالرسالة: ||${content.slice(0, 100)}||`);
       return;
     }
 
-    // 2) روابط مشبوهة + دعوات ديسكورد
+    // 2) دعوات وروابط مشبوهة
     if (data.antiInvites !== false) {
       const inviteRegex = /(discord\.gg\/|discord\.com\/invite\/|discordapp\.com\/invite\/)/i;
       const badLink = /(discord\.gift|free.?nitro|steamcommunity\.ru|disc0rd|bit\.ly\/)/i;
       if (inviteRegex.test(content) || badLink.test(content)) {
         await message.delete().catch(() => {});
         try { await message.member.timeout(10 * 60 * 1000, 'Invite / bad link'); } catch {}
-        await logAction(message.guild, '⚠️ رابط/دعوة محذوفة', `**العضو:** ${message.author}\n**المحتوى:** ${content.slice(0, 150)}`, 0xFFA500);
+        await logAction(message.guild, 'رابط/دعوة محذوفة', `العضو: ${message.author}\n${content.slice(0, 150)}`, 0xFFA500);
         return;
       }
     }
 
-    // 3) سبام (رسائل كثيرة بسرعة)
+    // 3) سبام
     if (data.antiSpam !== false) {
       const key = message.author.id;
       const now = Date.now();
@@ -171,21 +166,20 @@ client.on('messageCreate', async (message) => {
       if (times.length >= 6) {
         await message.delete().catch(() => {});
         try { await message.member.timeout(3 * 60 * 1000, 'Spam'); } catch {}
-        await logAction(message.guild, '💬 سبام', `**العضو:** ${message.author}\nأرسل ${times.length} رسائل خلال 5 ثواني`, 0xFFA500);
+        await logAction(message.guild, 'سبام', `العضو: ${message.author}\n${times.length} رسائل خلال 5 ثواني`, 0xFFA500);
         spamMap.set(key, []);
         return;
       }
     }
 
-    // 4) كابس لوك مفرط
+    // 4) كابس مفرط
     if (data.antiCaps !== false && content.length > 12) {
       const letters = content.replace(/[^a-zA-Z\u0600-\u06FF]/g, '');
       if (letters.length > 10) {
         const upper = (content.match(/[A-Z]/g) || []).length;
-        const ratio = upper / letters.length;
-        if (ratio > 0.7) {
+        if (upper / letters.length > 0.7) {
           await message.delete().catch(() => {});
-          await logAction(message.guild, '🔠 كابس مفرط', `**العضو:** ${message.author}\n**الرسالة:** ${content.slice(0, 100)}`, 0xFFA500);
+          await logAction(message.guild, 'كابس مفرط', `العضو: ${message.author}\n${content.slice(0, 100)}`, 0xFFA500);
           return;
         }
       }
@@ -197,17 +191,15 @@ client.on('messageCreate', async (message) => {
     if (mentionCount >= maxMentions) {
       await message.delete().catch(() => {});
       try { await message.member.timeout(5 * 60 * 1000, 'Mass mention'); } catch {}
-      await logAction(message.guild, '📢 منشن جماعي', `**العضو:** ${message.author}\nعدد المنشن: ${mentionCount}`, 0xFFA500);
+      await logAction(message.guild, 'منشن جماعي', `العضو: ${message.author}\nالعدد: ${mentionCount}`, 0xFFA500);
       return;
     }
-
   } catch (e) {
     console.error('messageCreate error:', e.message);
   }
 });
 
 // Anti-Nuke
-const actionTracker = new Map();
 client.on('channelDelete', async (channel) => {
   try {
     if (!channel.guild) return;
@@ -224,14 +216,14 @@ client.on('channelDelete', async (channel) => {
       const member = await channel.guild.members.fetch(entry.executor.id).catch(() => null);
       if (member) {
         await member.roles.set([]).catch(() => {});
-        await member.ban({ reason: 'Anti-Nuke: mass channel delete' }).catch(() => {});
-        await logAction(channel.guild, '🚨 Anti-Nuke', `تم بان ${entry.executor.tag} بسبب حذف قنوات كثيرة`);
+        await member.ban({ reason: 'Anti-Nuke' }).catch(() => {});
+        await logAction(channel.guild, 'Anti-Nuke', `تم بان ${entry.executor.tag}`);
       }
     }
   } catch (e) {}
 });
 
-// Anti-Raid (دخول جماعي)
+// Anti-Raid
 client.on('guildMemberAdd', async (member) => {
   try {
     const gid = member.guild.id;
@@ -240,10 +232,9 @@ client.on('guildMemberAdd', async (member) => {
     const joins = joinMap.get(gid).filter(t => now - t < 15000);
     joins.push(now);
     joinMap.set(gid, joins);
-
     if (joins.length >= 8) {
       try { await member.timeout(10 * 60 * 1000, 'Possible raid'); } catch {}
-      await logAction(member.guild, '🛡️ Anti-Raid', `دخول جماعي مكتشف (${joins.length} عضو / 15 ثانية)\nآخر داخل: ${member.user.tag}`, 0x9B59B6);
+      await logAction(member.guild, 'Anti-Raid', `دخول جماعي (${joins.length})\n${member.user.tag}`, 0x9B59B6);
     }
   } catch (e) {}
 });
@@ -256,41 +247,51 @@ client.on('interactionCreate', async (i) => {
     if (i.commandName === 'addword') {
       const word = i.options.getString('word').toLowerCase();
       if (!data.bannedWords.includes(word)) { data.bannedWords.push(word); saveData(); }
-      return i.editReply(`✅ تمت إضافة: **${word}**\n(الفلتر الذكي يلتقط أشكالها المموهة أيضاً)`);
+      return i.editReply('تمت إضافة: **' + word + '**');
     }
     if (i.commandName === 'removeword') {
       const word = i.options.getString('word').toLowerCase();
       data.bannedWords = data.bannedWords.filter(w => w !== word); saveData();
-      return i.editReply(`✅ تم حذف: **${word}**`);
+      return i.editReply('تم حذف: **' + word + '**');
     }
     if (i.commandName === 'listwords') {
       return i.editReply('```' + (data.bannedWords.slice(0, 50).join(', ') || 'فارغة') + '```');
     }
     if (i.commandName === 'setlog') {
       data.logChannelId = i.options.getChannel('channel').id; saveData();
-      return i.editReply('✅ تم تحديد روم اللوقات');
+      return i.editReply('تم تحديد روم اللوقات');
     }
     if (i.commandName === 'whitelist') {
       const u = i.options.getUser('user');
       if (!data.whitelist.includes(u.id)) { data.whitelist.push(u.id); saveData(); }
-      return i.editReply(`✅ تم إضافة ${u.tag} للقائمة البيضاء`);
+      return i.editReply('تم إضافة ' + u.tag);
     }
     if (i.commandName === 'unwhitelist') {
       const u = i.options.getUser('user');
       data.whitelist = data.whitelist.filter(id => id !== u.id); saveData();
-      return i.editReply(`✅ تم إزالة ${u.tag}`);
+      return i.editReply('تم إزالة ' + u.tag);
     }
     if (i.commandName === 'settings') {
       return i.editReply(
-        `**إعدادات الحماية:**\n` +
-        `• فلتر الشتائم الذكي: ✅\n` +
-        `• Anti-Spam: ${data.antiSpam !== false ? '✅' : '❌'}\n` +
-        `• Anti-Caps: ${data.antiCaps !== false ? '✅' : '❌'}\n` +
-        `• Anti-Invites: ${data.antiInvites !== false ? '✅' : '❌'}\n` +
-        `• Max Mentions: ${data.maxMentions || 5}\n` +
-        `• كلمات ممنوعة: ${data.bannedWords.length}\n` +
-        `• Whitelist: ${data.whitelist.length}`
+        '**إعدادات الحماية:**\n' +
+        '• فلتر شتائم ذكي: نعم\n' +
+        '• Anti-Spam: ' + (data.antiSpam !== false ? 'نعم' : 'لا') + '\n' +
+        '• Anti-Caps: ' + (data.antiCaps !== false ? 'نعم' : 'لا') + '\n' +
+        '• Anti-Invites: ' + (data.antiInvites !== false ? 'نعم' : 'لا') + '\n' +
+        '• Max Mentions: ' + (data.maxMentions || 5) + '\n' +
+        '• كلمات: ' + data.bannedWords.length
       );
+    }
+    if (i.commandName === 'clear') {
+      const amount = i.options.getInteger('amount');
+      if (!i.channel.permissionsFor(i.guild.members.me).has(PermissionFlagsBits.ManageMessages)) {
+        return i.editReply('ما عندي صلاحية Manage Messages');
+      }
+      const deleted = await i.channel.bulkDelete(amount, true).catch(() => null);
+      if (!deleted) {
+        return i.editReply('فشل الحذف (ممكن الرسائل أقدم من 14 يوم)');
+      }
+      return i.editReply('تم حذف **' + deleted.size + '** رسالة');
     }
   } catch (e) {
     console.error('Interaction error:', e.message);
@@ -329,7 +330,7 @@ app.get('/login', (req, res) => {
   input{width:100%;padding:12px;margin:12px 0;border-radius:8px;border:1px solid #333;background:#0f0f18;color:#fff;box-sizing:border-box}
   button{width:100%;padding:12px;border:none;border-radius:8px;background:#5865F2;color:#fff;font-weight:bold;cursor:pointer;margin-top:8px}
   </style></head><body><div class="box">
-  <h1>🛡️ Bot Dashboard</h1>${error}
+  <h1>Bot Dashboard</h1>${error}
   <form method="POST" action="/login">
     <input type="password" name="password" placeholder="كلمة السر" required autofocus>
     <button type="submit">دخول</button>
