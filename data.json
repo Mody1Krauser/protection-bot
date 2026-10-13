@@ -1,5 +1,13 @@
 {
-  "bannedWords": ["كس","كسمك","كس امك","كس اختك","شرموطة","قحبة","عرص","خول","منيوك","متناك","زب","زبي","طيز","خرا","ابن الكلب","fuck","shit","bitch","asshole","dick","pussy"],
+  "bannedWords": [
+    "كس", "كسمك", "كس امك", "كس اختك", "شرموطة", "قحبة", "عرص", "خول",
+    "منيوك", "متناك", "زب", "زبي", "طيز", "خرا", "ابن الكلب",
+    "fuck", "shit", "bitch", "asshole", "dick", "pussy"
+  ],
   "whitelist": [],
-  "logChannelId": ""
+  "logChannelId": "",
+  "antiSpam": true,
+  "antiCaps": true,
+  "antiInvites": true,
+  "maxMentions": 5
 }
